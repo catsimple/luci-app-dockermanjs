@@ -64,14 +64,21 @@ return dm2.dv.extend({
 
 		if (this.isDuplicate && this.duplicateContainer) {
 			pageTitle = _('Duplicate/Edit Container: %s').format(this.duplicateContainer.Name?.substring(1) || '');
-			const resolveImageId = (imageRef) => {
-				if (!imageRef) return null;
-				const match = (image_list || []).find(img => img.Id === imageRef || (Array.isArray(img.RepoTags) && img.RepoTags.includes(imageRef)));
-				return match?.Id || null;
+			const resolvePullableImageRef = (imageRef) => {
+				if (!imageRef)
+					return '';
+				const ref = String(imageRef).trim();
+				const match = (image_list || []).find((img) =>
+					img?.Id === ref || (Array.isArray(img?.RepoTags) && img.RepoTags.includes(ref))
+				);
+				const repoTag = Array.isArray(match?.RepoTags)
+					? match.RepoTags.find((t) => t && t !== '<none>:<none>')
+					: null;
+				return repoTag || match?.Id || ref;
 			};
 			const c = this.duplicateContainer;
 			const hostConfig = c.HostConfig || {};
-			const resolvedImage = resolveImageId(c.Image) || resolveImageId(c.Config?.Image) || c.Image || c.Config?.Image || '';
+			const resolvedImage = resolvePullableImageRef(c.Config?.Image) || resolvePullableImageRef(c.Image) || '';
 			const builtInNetworks = new Set(['none', 'bridge', 'host']);
 			const [netnames, nets] = Object.entries(c.NetworkSettings?.Networks || {});
 
@@ -216,7 +223,14 @@ return dm2.dv.extend({
 		o = s.option(form.ListValue, 'image', _('Docker Image'));
 		o.rmempty = true;
 		for (const image of image_list) {
-			o.value(image.Id, image?.RepoTags?.[0]);
+			const repoTag = Array.isArray(image?.RepoTags)
+				? image.RepoTags.find((t) => t && t !== '<none>:<none>')
+				: null;
+			const value = repoTag || image.Id;
+			const label = repoTag
+				? `${repoTag} (${(image.Id || '').substring(0, 12)})`
+				: (image.Id || '').substring(0, 12);
+			o.value(value, label);
 		}
 
 		o = s.option(form.Flag, 'pull', _('Always pull image first'));

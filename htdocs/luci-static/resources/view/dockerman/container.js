@@ -1349,11 +1349,17 @@ return dm2.dv.extend({
 		return out;
 	},
 
+	isSha256ImageId(value) {
+		if (!value)
+			return false;
+		return /^sha256:[0-9a-f]{12,}$/i.test(String(value).trim());
+	},
+
 	normalizeImageReference(imageRef) {
 		if (!imageRef)
 			return '';
 		const ref = String(imageRef).trim();
-		if (!ref || ref.includes('@sha256:'))
+		if (!ref || ref.includes('@sha256:') || this.isSha256ImageId(ref))
 			return ref;
 		const lastSlash = ref.lastIndexOf('/');
 		const lastColon = ref.lastIndexOf(':');
@@ -1362,6 +1368,8 @@ return dm2.dv.extend({
 
 	splitImageReference(imageRef) {
 		if (!imageRef)
+			return { fromImage: '', tag: '' };
+		if (this.isSha256ImageId(imageRef))
 			return { fromImage: '', tag: '' };
 		if (imageRef.includes('@sha256:'))
 			return { fromImage: imageRef, tag: '' };
@@ -1378,6 +1386,58 @@ return dm2.dv.extend({
 			return null;
 		const img = images.find((i) => Array.isArray(i?.RepoTags) && i.RepoTags.includes(target));
 		return img?.Id || null;
+	},
+
+	stripSha256Prefix(value) {
+		return String(value || '').replace(/^sha256:/, '').trim();
+	},
+
+	getPullableRefFromImageEntry(image) {
+		const tags = Array.isArray(image?.RepoTags)
+			? image.RepoTags.filter((t) => t && t !== '<none>:<none>')
+			: [];
+		if (tags.length > 0)
+			return this.normalizeImageReference(tags[0]);
+
+		const digests = Array.isArray(image?.RepoDigests)
+			? image.RepoDigests.filter((d) => typeof d === 'string' && d.includes('@sha256:'))
+			: [];
+		if (digests.length > 0) {
+			const repo = digests[0].split('@')[0];
+			return this.normalizeImageReference(repo);
+		}
+
+		return '';
+	},
+
+	resolveUpgradeImageReference(configImageRef, containerImageId, imageList) {
+		const directRef = this.normalizeImageReference(configImageRef);
+		const directParts = this.splitImageReference(directRef);
+		if (directParts.fromImage)
+			return directRef;
+
+		const wantedIds = new Set(
+			[containerImageId, configImageRef]
+				.map((v) => this.stripSha256Prefix(v))
+				.filter((v) => v)
+		);
+
+		for (const image of (Array.isArray(imageList) ? imageList : [])) {
+			const imgId = this.stripSha256Prefix(image?.Id);
+			if (!imgId || !wantedIds.has(imgId))
+				continue;
+			const ref = this.getPullableRefFromImageEntry(image);
+			if (ref)
+				return ref;
+		}
+
+		if (typeof configImageRef === 'string' && configImageRef.includes('@sha256:')) {
+			const repo = configImageRef.split('@')[0];
+			if (repo)
+				return this.normalizeImageReference(repo);
+		}
+
+		return '';
 	},
 
 	buildEndpointConfig(endpoint) {
@@ -1398,7 +1458,7 @@ return dm2.dv.extend({
 		});
 	},
 
-	buildUpgradeCreatePayload(container) {
+	buildUpgradeCreatePayload(container, imageRefOverride) {
 		const config = container?.Config || {};
 		const hostConfig = { ...(container?.HostConfig || {}) };
 		const connectedNetworks = Object.entries(container?.NetworkSettings?.Networks || {});
@@ -1434,7 +1494,8 @@ return dm2.dv.extend({
 			StdinOnce: config.StdinOnce,
 			Env: config.Env,
 			Cmd: config.Cmd,
-			Image: config.Image,
+			// Force the recreated container to use the resolved target image from upgrade flow.
+			Image: imageRefOverride || config.Image,
 			Volumes: config.Volumes,
 			WorkingDir: config.WorkingDir,
 			Entrypoint: config.Entrypoint,
@@ -1470,29 +1531,48 @@ return dm2.dv.extend({
 		const originalStatus = this.getContainerStatus(this_container);
 		const oldContainerId = this_container.Id;
 		const oldImageId = (this_container.Image || '').replace(/^sha256:/, '');
-		const imageRef = this.normalizeImageReference(this_container.Config?.Image);
-		const imageParts = this.splitImageReference(imageRef);
-
-		if (!imageParts.fromImage) {
-			this.showNotification(_('Upgrade failed'), _('Container image is missing'), 7000, 'error');
-			return;
-		}
+		const configImageRef = String(this_container.Config?.Image || '').trim();
+		let imageRef = this.normalizeImageReference(configImageRef);
+		let imageParts = this.splitImageReference(imageRef);
 
 		let renamedOldName = `${originalName}_old_${Math.floor(Date.now() / 1000)}`;
 		let newContainerId = null;
 		let extraNetworks = {};
 
-		this.showNotification(_('Upgrade'), _('Pulling latest image...'), 4000, 'info');
+		this.showNotification(_('Upgrade'), _('Resolving image reference...'), 3000, 'info');
 
-		return this.executeDockerAction(
-			dm2.image_create,
-			{ query: { fromImage: imageParts.fromImage, tag: imageParts.tag } },
-			_('Upgrade'),
-			{ showOutput: false, showSuccess: false }
-		)
-			.then((ok) => {
-				if (!ok)
-					throw new Error(_('Failed to pull image'));
+		return Promise.resolve()
+			.then(() => {
+				if (imageParts.fromImage)
+					return true;
+
+				return dm2.image_list({ query: { all: true } }).then((imagesResponse) => {
+					const imageList = Array.isArray(imagesResponse?.body) ? imagesResponse.body : [];
+					const resolvedRef = this.resolveUpgradeImageReference(configImageRef, this_container.Image, imageList);
+					if (!resolvedRef) {
+						if (this.isSha256ImageId(configImageRef) || this.isSha256ImageId(this_container.Image)) {
+							throw new Error(_('Container image is local ID only. No pullable repository tag was found.'));
+						}
+						throw new Error(_('Container image is missing'));
+					}
+					imageRef = resolvedRef;
+					imageParts = this.splitImageReference(imageRef);
+					if (!imageParts.fromImage)
+						throw new Error(_('Could not resolve a pullable image reference'));
+					this.showNotification(_('Upgrade'), _('Using image: ') + imageRef, 5000, 'notice');
+					return true;
+				});
+			})
+			.then(() => this.handleXHRTransfer({
+				q_params: { query: { fromImage: imageParts.fromImage, tag: imageParts.tag } },
+				commandCPath: '/images/create',
+				commandDPath: '/images/create',
+				commandTitle: _('Upgrade'),
+				commandMessage: _('Pulling latest image...'),
+				successMessage: _('Image pull completed'),
+				noFileUpload: true,
+			}))
+			.then(() => {
 				return dm2.image_list({ query: { all: true } });
 			})
 			.then((imagesResponse) => {
@@ -1528,7 +1608,7 @@ return dm2.dv.extend({
 				if (!continueFlow)
 					return false;
 
-				const payload = this.buildUpgradeCreatePayload(this_container);
+				const payload = this.buildUpgradeCreatePayload(this_container, imageRef);
 				extraNetworks = payload.extraNetworks || {};
 				return dm2.container_create({ query: { name: originalName }, body: payload.createBody });
 			})

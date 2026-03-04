@@ -2,6 +2,7 @@ include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI Support for docker (js frontend)
 LUCI_DEPENDS:=@(aarch64||arm||x86_64) \
+	@!PACKAGE_luci-app-dockerman \
 	+luci-base \
 	+docker \
 	+ttyd \

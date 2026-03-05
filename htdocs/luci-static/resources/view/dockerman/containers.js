@@ -120,7 +120,7 @@ return dm2.dv.extend({
 
 						if (msg?.ContainersDeleted || msg?.SpaceReclaimed != null) {
 							const deleted = Array.isArray(msg.ContainersDeleted) ? msg.ContainersDeleted.length : 0;
-							const reclaimed = msg.SpaceReclaimed != null ? `%1024.2m`.format(msg.SpaceReclaimed) : '0B';
+							const reclaimed = msg.SpaceReclaimed != null ? view.formatBytesSI(msg.SpaceReclaimed) : '0 B';
 							view.showNotification(
 								dm2.ActionTypes['prune'].i18n,
 								_('Deleted: %s, Reclaimed: %s').format(deleted, reclaimed),

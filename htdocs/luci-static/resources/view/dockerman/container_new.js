@@ -703,9 +703,9 @@ return dm2.dv.extend({
 		o.depends('advanced', 1);
 
 		o = s.option(form.Value, 'memory', _('Memory'),
-			_('Memory limit (format: <number>[<unit>]). Number is a positive integer. Unit can be one of b, k, m, or g. Minimum is 4M'));
+			_('Memory limit. Examples: 512MB, 4GB, 1.5G, 512MiB, 1GiB. Minimum is 4MB.'));
 		o.rmempty = true;
-		o.placeholder = '128m';
+		o.placeholder = '4GB';
 		o.depends('advanced', 1);
 		o.write = function(section_id, value) {
 			if (!value || value == 0) return 0;
@@ -714,16 +714,17 @@ return dm2.dv.extend({
 		};
 		o.validate = function(section_id, value) {
 			if (!value) return true;
-			if (value > view.memory) return _(`Only ${view.memory} bytes available`);
+			if (view.parseMemory(value) > view.memory) return _('Only %s available').format(view.formatBytesSI(view.memory));
 			return true;
 		};
 
 		o = s.option(form.Value, 'memory_reservation', _('Memory Reservation'));
+		o.description = _('Examples: 256MB, 2GB, 2GiB');
 		o.depends('advanced', 1);
-		o.placeholder = '128m';
+		o.placeholder = '2GB';
 		o.cfgvalue = (sid, val) => {
 			const res = view.map.data.data[sid].memory_reservation;
-			return res ? '%1024.2m'.format(res) : 0;
+			return res ? view.formatBytesSI(res) : '0 B';
 		};
 		o.write = function(section_id, value) {
 			if (!value || value == 0) return 0;

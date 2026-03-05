@@ -487,19 +487,41 @@ const dv = view.extend({
 	},
 
 	parseMemory(value) {
-		if (!value) return 0;
-		const rex = /^([0-9.]+) *([bkmgt])?i? *[Bb]?/i;
-		let [, amount, unit] = rex.exec(value.toLowerCase());
-		amount = amount ? Number.parseFloat(amount) : 0;
-		switch (unit) {
-		default: break;
-		case 'k': amount *= (2 ** 10); break;
-		case 'm': amount *= (2 ** 20); break;
-		case 'g': amount *= (2 ** 30); break;
-		case 't': amount *= (2 ** 40); break;
-		case 'p': amount *= (2 ** 50); break;
+		if (value == null) return 0;
+		const raw = String(value).trim();
+		if (!raw) return 0;
+		if (raw === '-1') return -1;
+
+		const rex = /^([0-9]+(?:\.[0-9]+)?)\s*([kmgtp]?)\s*(i?)\s*[Bb]?$/i;
+		const match = rex.exec(raw);
+		if (!match) {
+			const numeric = Number.parseFloat(raw);
+			if (!Number.isFinite(numeric))
+				return 0;
+			return Math.round(numeric);
 		}
-		return amount;
+
+		let amount = Number.parseFloat(match[1] || '0');
+		const unit = (match[2] || '').toLowerCase();
+		const binaryFlag = (match[3] || '').toLowerCase();
+		const powerMap = { '': 0, k: 1, m: 2, g: 3, t: 4, p: 5 };
+		const power = powerMap[unit] || 0;
+		const base = binaryFlag === 'i' ? 1024 : 1000;
+		amount *= (base ** power);
+		return Math.round(amount);
+	},
+
+	formatBytesSI(value, precision = 2) {
+		const bytes = Number(value || 0);
+		if (!Number.isFinite(bytes) || bytes === 0)
+			return '0 B';
+
+		const abs = Math.abs(bytes);
+		const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+		const idx = Math.min(units.length - 1, Math.floor(Math.log(abs) / Math.log(1000)));
+		const scaled = bytes / (1000 ** idx);
+		const decimals = idx === 0 ? 0 : precision;
+		return `${scaled.toFixed(decimals)} ${units[idx]}`;
 	},
 
 	listToKv: (list) => {

@@ -2438,3 +2438,30 @@ msgstr ""
 #~ msgstr ""
 #~ "按下匯入按鈕時，可將本地映像檔載入至系統，也可從遠端下載有效的tar格式映像"
 #~ "檔。"
+
+msgid "Stats not loaded yet. Click Refresh."
+msgstr "統計資訊尚未載入，請點擊「重新整理」。"
+
+msgid "Example: 1.5 (fractional CPU cores)"
+msgstr "範例：1.5（可使用小數 CPU 核心數）"
+
+msgid "Range: 1000-1000000, unit is microseconds"
+msgstr "範圍：1000-1000000，單位為微秒"
+
+msgid "Example: 50000, 0 means no explicit quota"
+msgstr "範例：50000，0 代表不設定顯式配額"
+
+msgid "Relative weight, commonly 2-262144 (default 1024)"
+msgstr "相對權重，常見範圍 2-262144（預設 1024）"
+
+msgid "Examples: 512MB, 4GB, 1.5G, 512MiB, 1GiB"
+msgstr "範例：512MB、4GB、1.5G、512MiB、1GiB"
+
+msgid "Examples: -1 (unlimited), 8GB, 8192M, 8GiB"
+msgstr "範例：-1（不限制）、8GB、8192M、8GiB"
+
+msgid "Examples: 256MB, 2GB, 2GiB"
+msgstr "範例：256MB、2GB、2GiB"
+
+msgid "Only %s available"
+msgstr "僅可用 %s"

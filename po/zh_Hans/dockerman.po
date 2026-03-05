@@ -2435,3 +2435,30 @@ msgstr "有警告"
 #~ msgstr ""
 #~ "按下导入按钮时，既可以将本地镜像文件加载到系统上，也可以从远程下载有效的"
 #~ "Tar格式的镜像文件。"
+
+msgid "Stats not loaded yet. Click Refresh."
+msgstr "统计信息尚未加载，请点击“刷新”。"
+
+msgid "Example: 1.5 (fractional CPU cores)"
+msgstr "示例：1.5（可使用小数 CPU 核心数）"
+
+msgid "Range: 1000-1000000, unit is microseconds"
+msgstr "范围：1000-1000000，单位为微秒"
+
+msgid "Example: 50000, 0 means no explicit quota"
+msgstr "示例：50000，0 表示不设置显式配额"
+
+msgid "Relative weight, commonly 2-262144 (default 1024)"
+msgstr "相对权重，常用范围 2-262144（默认 1024）"
+
+msgid "Examples: 512MB, 4GB, 1.5G, 512MiB, 1GiB"
+msgstr "示例：512MB、4GB、1.5G、512MiB、1GiB"
+
+msgid "Examples: -1 (unlimited), 8GB, 8192M, 8GiB"
+msgstr "示例：-1（不限制）、8GB、8192M、8GiB"
+
+msgid "Examples: 256MB, 2GB, 2GiB"
+msgstr "示例：256MB、2GB、2GiB"
+
+msgid "Only %s available"
+msgstr "仅可用 %s"

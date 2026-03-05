@@ -139,14 +139,15 @@ function calculateCPUUsage(stats, previousStats) {
 function createProgressBar(label, percentage, used, total) {
 	const clampedPercentage = Math.min(Math.max(percentage || 0, 0), 100);
 	const color = clampedPercentage > 90 ? '#d9534f' : (clampedPercentage > 70 ? '#f0ad4e' : '#5cb85c');
+	const detailText = (used && total) ? `${used} / ${total}` : `${clampedPercentage.toFixed(2)}%`;
 
 	return E('div', { 'style': 'margin: 10px 0;' }, [
-		E('div', { 'style': 'display: flex; justify-content: space-between; margin-bottom: 5px;' }, [
+		E('div', { 'style': 'display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 6px; gap: 2px;' }, [
 			E('span', { 'style': 'font-weight: bold;' }, label),
-			E('span', {}, used && total ? `${used} / ${total}` : `${clampedPercentage.toFixed(2)}%`)
+			E('span', { 'style': 'text-align: left; white-space: normal; overflow-wrap: anywhere;' }, detailText)
 		]),
 		E('div', { 
-			'style': 'width: 100%; height: 20px; background-color: #e9ecef; border-radius: 4px; overflow: hidden;'
+			'style': 'width: 100%; max-width: 640px; height: 20px; background-color: #e9ecef; border-radius: 4px; overflow: hidden;'
 		}, [
 			E('div', {
 				'style': `width: ${clampedPercentage}%; height: 100%; background-color: ${color}; transition: width 0.3s ease;`
@@ -312,9 +313,109 @@ return dm2.dv.extend({
 		this.inspectLoadedOnce = false;
 		this.inspectLoadPending = false;
 		this.stopLogsAutoRefresh();
+		if (!document.getElementById('dockerman-container-detail-style')) {
+			const style = document.createElement('style');
+			style.id = 'dockerman-container-detail-style';
+			style.textContent = `
+.dockerman-container-detail .cbi-map .cbi-section-node {
+	margin-left: 0 !important;
+	margin-right: 0 !important;
+	max-width: none !important;
+}
+.dockerman-container-detail .cbi-map {
+	margin-left: 0 !important;
+	margin-right: 0 !important;
+	max-width: none !important;
+}
+.dockerman-container-detail .cbi-section {
+	margin-left: 0 !important;
+	margin-right: 0 !important;
+	max-width: none !important;
+}
+.dockerman-container-detail .cbi-tabcontainer[data-tab],
+.dockerman-container-detail .cbi-tabcontainer[id] {
+	padding: 14px 18px 18px;
+}
+.dockerman-container-detail .cbi-tabcontainer[data-tab] .cbi-section,
+.dockerman-container-detail .cbi-tabcontainer[id] .cbi-section {
+	margin: 0 0 14px 0;
+}
+.dockerman-container-detail [id="container.json.cont.info"] {
+	display: block;
+	width: 100%;
+	margin: 0 !important;
+	padding: 0 12px;
+	box-sizing: border-box;
+}
+.dockerman-container-detail [id="container.json.cont.info"] .cbi-value {
+	display: grid !important;
+	grid-template-columns: minmax(150px, 33%) minmax(0, 1fr);
+	align-items: start;
+	column-gap: 12px;
+	padding: 10px 0;
+	border-bottom: 1px solid #dfe4ec;
+}
+.dockerman-container-detail [id="container.json.cont.info"] .cbi-value .cbi-value-title,
+.dockerman-container-detail [id="container.json.cont.info"] .cbi-value .cbi-value-field {
+	display: block !important;
+	float: none !important;
+	clear: none !important;
+	margin: 0 !important;
+	text-align: left !important;
+	vertical-align: top;
+	padding: 0 !important;
+}
+.dockerman-container-detail [id="container.json.cont.info"] .cbi-value .cbi-value-title {
+	font-weight: 600;
+	color: #1f2a44;
+}
+.dockerman-container-detail [id="container.json.cont.info"] .cbi-value .cbi-value-field {
+	min-width: 0;
+	margin-left: 0 !important;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+.dockerman-container-detail [id="container.json.cont.info"] .cbi-value .cbi-value-field input,
+.dockerman-container-detail [id="container.json.cont.info"] .cbi-value .cbi-value-field select,
+.dockerman-container-detail [id="container.json.cont.info"] .cbi-value .cbi-value-field textarea {
+	max-width: 640px;
+}
+.dockerman-container-detail #stats-progress-bars {
+	max-width: 760px;
+}
+.dockerman-container-detail #raw-stats-field,
+.dockerman-container-detail #raw-ps-field {
+	margin-top: 8px;
+	padding: 12px;
+	border: 1px solid #d9dee7;
+	border-radius: 6px;
+	background: #fff;
+}
+@media (max-width: 900px) {
+	.dockerman-container-detail [id="container.json.cont.info"] {
+		display: block;
+		padding: 0 8px;
+	}
+	.dockerman-container-detail [id="container.json.cont.info"] .cbi-value {
+		display: block !important;
+		padding: 8px 0;
+		border-bottom: 1px solid #e7ebf3;
+	}
+	.dockerman-container-detail [id="container.json.cont.info"] .cbi-value .cbi-value-title,
+	.dockerman-container-detail [id="container.json.cont.info"] .cbi-value .cbi-value-field {
+		display: block;
+		width: 100%;
+		padding: 4px 0;
+		border-bottom: 0;
+	}
+}
+`;
+			document.head.appendChild(style);
+		}
 
 		// Create main container with action buttons
-		const mainContainer = E('div', {});
+		const mainContainer = E('div', { 'class': 'dockerman-container-detail' });
+		const tabSectionPad = 'padding: 12px 16px 16px;';
 
 		const containerStatus = this.getContainerStatus(this_container);
 
@@ -454,7 +555,6 @@ return dm2.dv.extend({
 		s.tab('info', _('Info'));
 
 		o = s.taboption('info', form.Value, 'Name', _('Name'));
-<<<<<<< HEAD
 		o.cfgvalue = (sid) => {
 			const name = this.map.data.data[sid]?.Name || '';
 			return String(name).replace(/^\//, '');
@@ -462,8 +562,6 @@ return dm2.dv.extend({
 		o.write = function(sid, value) {
 			this.map.data.data[sid].Name = String(value || '').replace(/^\//, '');
 		};
-=======
->>>>>>> c0dc24ad9ecb563fa9f4e32d909128aab4c5f6ce
 
 		o = s.taboption('info', form.DummyValue, 'Id', _('ID'));
 
@@ -624,6 +722,7 @@ return dm2.dv.extend({
 		o = ss.option(form.Value, 'NanoCpus', _('CPUs'));
 		o.cfgvalue = (sid) => view.map.data.data[sid].NanoCpus / (10**9);
 		o.placeholder='1.5';
+		o.description = _('Example: 1.5 (fractional CPU cores)');
 		o.datatype = 'ufloat';
 		o.validate = function(section_id, value) {
 			if (!value) return true;
@@ -632,51 +731,82 @@ return dm2.dv.extend({
 		};
 
 		o = ss.option(form.Value, 'CpuPeriod', _('CPU Period (microseconds)'));
+		o.placeholder = '100000';
+		o.description = _('Range: 1000-1000000, unit is microseconds');
 		o.datatype = 'or(and(uinteger,min(1000),max(1000000)),"0")';
 
 		o = ss.option(form.Value, 'CpuQuota', _('CPU Quota (microseconds)'));
+		o.placeholder = '0';
+		o.description = _('Example: 50000, 0 means no explicit quota');
 		o.datatype = 'uinteger';
 
 		o = ss.option(form.Value, 'CpuShares', _('CPU Shares Weight'));
 		o.placeholder='1024';
+		o.description = _('Relative weight, commonly 2-262144 (default 1024)');
 		o.datatype = 'uinteger';
 
 		o = ss.option(form.Value, 'Memory', _('Memory Limit'));
 		o.cfgvalue = (sid, val) => {
 			const mem = view.map.data.data[sid].Memory;
-			return mem ? '%1024.2m'.format(mem) : 0;
+			return mem ? view.formatBytesSI(mem) : '0 B';
 		};
+		o.placeholder = '4GB';
+		o.description = _('Examples: 512MB, 4GB, 1.5G, 512MiB, 1GiB');
 		o.write = function(sid, val) {
 			if (!val || val == 0) return 0;
-			this.map.data.data[sid].Memory = view.parseMemory(val);
-			return view.parseMemory(val) || 0;
+			const input = String(val).trim();
+			const current = Number(this.map.data.data[sid].Memory || 0);
+			if (input === view.formatBytesSI(current))
+				return current;
+			const parsed = view.parseMemory(input);
+			this.map.data.data[sid].Memory = parsed;
+			return parsed || 0;
 		};
 		o.validate = function(sid, value) {
 			if (!value) return true;
-			if (value > view.memory) return _(`Only ${view.memory} bytes available`);
+			const parsed = view.parseMemory(value);
+			if (parsed > view.memory) return _('Only %s available').format(view.formatBytesSI(view.memory));
 			return true;
 		};
 
 		o = ss.option(form.Value, 'MemorySwap', _('Memory + Swap'));
 		o.cfgvalue = (sid, val) => {
 			const swap = this.map.data.data[sid].MemorySwap;
-			return swap ? '%1024.2m'.format(swap) : 0;
+			return (swap === -1) ? '-1' : (swap ? view.formatBytesSI(swap) : '0 B');
 		};
+		o.placeholder = '-1';
+		o.description = _('Examples: -1 (unlimited), 8GB, 8192M, 8GiB');
 		o.write = function(sid, val) {
 			if (!val || val == 0) return 0;
-			this.map.data.data[sid].MemorySwap = view.parseMemory(val);
-			return view.parseMemory(val) || 0;
+			const input = String(val).trim();
+			const current = this.map.data.data[sid].MemorySwap;
+			if (input === '-1' || input === '-1 (unlimited)') {
+				this.map.data.data[sid].MemorySwap = -1;
+				return -1;
+			}
+			if (Number(current) > 0 && input === view.formatBytesSI(current))
+				return Number(current);
+			const parsed = view.parseMemory(input);
+			this.map.data.data[sid].MemorySwap = parsed;
+			return parsed || 0;
 		};
 
 		o = ss.option(form.Value, 'MemoryReservation', _('Memory Reservation'));
 		o.cfgvalue = (sid, val) => {
 			const res = this.map.data.data[sid].MemoryReservation;
-			return res ? '%1024.2m'.format(res) : 0;
+			return res ? view.formatBytesSI(res) : '0 B';
 		};
+		o.placeholder = '2GB';
+		o.description = _('Examples: 256MB, 2GB, 2GiB');
 		o.write = function(sid, val) {
 			if (!val || val == 0) return 0;
-			this.map.data.data[sid].MemoryReservation = view.parseMemory(val);
-			return view.parseMemory(val) || 0;
+			const input = String(val).trim();
+			const current = Number(this.map.data.data[sid].MemoryReservation || 0);
+			if (input === view.formatBytesSI(current))
+				return current;
+			const parsed = view.parseMemory(input);
+			this.map.data.data[sid].MemoryReservation = parsed;
+			return parsed || 0;
 		};
 
 		o = ss.option(form.Flag, 'OomKillDisable', _('OOM Kill Disable'));
@@ -725,7 +855,7 @@ return dm2.dv.extend({
 					try { view.statsTable.update([]); } catch (e) {}
 				}
 
-				return E('div', { 'class': 'cbi-section' }, [
+				return E('div', { 'class': 'cbi-section', 'style': tabSectionPad }, [
 					E('p', {}, [
 						_('Container is not running') + ' (' + _('Status') + ': ' + status + ')'
 					])
@@ -773,8 +903,8 @@ return dm2.dv.extend({
 							memUsage ? createProgressBar(
 								_('Memory Usage'),
 								memUsage.percentage,
-								'%1024.2m'.format(memUsage.used),
-								'%1024.2m'.format(memUsage.limit)
+								view.formatBytesSI(memUsage.used),
+								view.formatBytesSI(memUsage.limit)
 							) : E('div', {}, _('Memory usage data unavailable'))
 						);
 						progressBarsSection.appendChild(
@@ -799,15 +929,15 @@ return dm2.dv.extend({
 			const progressBarsSection = E('div', { 
 				'class': 'cbi-section',
 				'id': 'stats-progress-bars',
-				'style': 'margin-bottom: 20px;'
+				'style': 'margin: 0 0 20px 0; max-width: 760px;'
 			}, [
 				E('h3', {}, _('Resource Usage')),
 				!stats ? E('div', {}, _('Stats not loaded yet. Click Refresh.')) : (
 					memUsage ? createProgressBar(
 						_('Memory Usage'),
 						memUsage.percentage,
-						'%1024.2m'.format(memUsage.used),
-						'%1024.2m'.format(memUsage.limit)
+						view.formatBytesSI(memUsage.used),
+						view.formatBytesSI(memUsage.limit)
 					) : E('div', {}, _('Memory usage data unavailable'))
 				),
 				!stats ? E('div') : (
@@ -833,7 +963,7 @@ return dm2.dv.extend({
 			if (rows.length > 0)
 				statsTable.update(rows);
 
-			return E('div', { 'class': 'cbi-section' }, [
+			return E('div', { 'class': 'cbi-section', 'style': tabSectionPad }, [
 				progressBarsSection,
 				statsTable.render(),
 				E('h3', { 'style': 'margin-top: 20px;' }, _('Raw JSON')),
@@ -846,7 +976,7 @@ return dm2.dv.extend({
 		this.updateStatsView = updateStats;
 
 		o = s.taboption('stats', form.DummyValue, '_stats_controls', _('Actions'));
-		o.render = L.bind(() => E('div', { 'class': 'cbi-section', 'style': 'margin-bottom: 10px;' }, [
+		o.render = L.bind(() => E('div', { 'class': 'cbi-section', 'style': 'margin: 0 0 10px 0; padding: 12px 16px 0 16px;' }, [
 			E('button', {
 				'class': 'cbi-button cbi-button-neutral',
 				'click': () => this.refreshStatsData(this_container.Id)
@@ -866,7 +996,7 @@ return dm2.dv.extend({
 			const status = this.getContainerStatus(this_container);
 
 			if (status !== 'running') {
-				return E('div', { 'class': 'cbi-section' }, [
+				return E('div', { 'class': 'cbi-section', 'style': tabSectionPad }, [
 					E('p', {}, [
 						_('Container is not running') + ' (' + _('Status') + ': ' + status + ')'
 					])
@@ -895,7 +1025,7 @@ return dm2.dv.extend({
 				psTable.update(ps_top.Processes);
 			}
 
-			return E('div', { 'class': 'cbi-section' }, [
+			return E('div', { 'class': 'cbi-section', 'style': tabSectionPad }, [
 				E('div', { 'style': 'margin-bottom: 10px;' }, [
 					E('label', { 'for': 'ps-flags-input', 'style': 'margin-right: 8px;' }, _('ps flags:')),
 					E('input', {
@@ -933,7 +1063,7 @@ return dm2.dv.extend({
 				return fileDiv;
 			}
 
-			fileDiv = E('div', { 'class': 'cbi-section' }, [
+			fileDiv = E('div', { 'class': 'cbi-section', 'style': tabSectionPad }, [
 				E('div', { 'style': 'margin-bottom: 10px;' }, [
 					E('label', { 'style': 'margin-right: 10px;' }, _('Path:')),
 					E('input', {
@@ -981,7 +1111,7 @@ return dm2.dv.extend({
 				return inspectDiv;
 			}
 
-			inspectDiv = E('div', { 'class': 'cbi-section' }, [
+			inspectDiv = E('div', { 'class': 'cbi-section', 'style': tabSectionPad }, [
 				E('div', { 'style': 'margin-bottom: 10px;' }, [
 					E('button', {
 						'class': 'cbi-button cbi-button-neutral',
@@ -1013,7 +1143,7 @@ return dm2.dv.extend({
 					_('Container is not running. Cannot connect to console.'));
 			}
 
-			const consoleDiv = E('div', { 'class': 'cbi-section' }, [
+			const consoleDiv = E('div', { 'class': 'cbi-section', 'style': tabSectionPad }, [
 				E('div', { 'style': 'margin-bottom: 15px;' }, [
 					E('label', { 'style': 'margin-right: 10px;' }, _('Command:')),
 					E('span', { 'id': 'console-command-wrapper' }, [
@@ -1091,7 +1221,7 @@ return dm2.dv.extend({
 					return E('div', { 'class': 'alert-message warning' },
 						_('Container is not running. Cannot connect to WebSocket console.'));
 				}
-				const wsDiv = E('div', { 'class': 'cbi-section' }, [
+				const wsDiv = E('div', { 'class': 'cbi-section', 'style': tabSectionPad }, [
 					E('div', { 'style': 'margin-bottom: 10px;' }, [
 						E('label', { 'style': 'margin-right: 10px;' }, _('Streams:')),
 						E('label', { 'style': 'margin-right: 6px;' }, [
@@ -1164,7 +1294,7 @@ return dm2.dv.extend({
 				return logsDiv;
 			}
 
-			logsDiv = E('div', { 'class': 'cbi-section' }, [
+			logsDiv = E('div', { 'class': 'cbi-section', 'style': tabSectionPad }, [
 				E('div', { 'style': 'margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;' }, [
 					E('label', { 'style': 'margin-right: 6px;' }, _('Lines to show:')),
 					E('input', {
@@ -1279,10 +1409,7 @@ return dm2.dv.extend({
 		const map = this.map;
 		if (!map)
 			return Promise.reject(new Error(_('Form is not ready yet.')));
-<<<<<<< HEAD
 		const originalName = String(this.container?.Name || '').replace(/^\//, '');
-=======
->>>>>>> c0dc24ad9ecb563fa9f4e32d909128aab4c5f6ce
 
 		const get = (opt) => map.data.get('json', 'cont', opt);
 		const gethc = (opt) => map.data.get('json', 'hostcfg', opt);
@@ -1326,17 +1453,12 @@ return dm2.dv.extend({
 				else
 					ui.addTimeLimitedNotification(_('Container updated'), [_('OK')], 4000, 'info');
 
-<<<<<<< HEAD
 				const currentName = originalName || String(this_container?.Name || '').replace(/^\//, '');
 				const nameInput = document.querySelector('input[name="cbid.json.cont.Name"]');
 				const parsedCont = map.data?.data?.cont || {};
 				const targetName = String(
 					nameInput?.value ?? parsedCont?.Name ?? get('Name') ?? ''
 				).trim().replace(/^\//, '');
-=======
-				const currentName = (this_container.Name || '').replace(/^\//, '');
-				const targetName = ((get('Name') || '').trim()).replace(/^\//, '');
->>>>>>> c0dc24ad9ecb563fa9f4e32d909128aab4c5f6ce
 				if (!targetName || targetName === currentName)
 					return true;
 

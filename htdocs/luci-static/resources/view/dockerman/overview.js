@@ -136,9 +136,33 @@ return dm2.dv.extend({
 
 		this.freespace = isLocal ? mounts.find(m => m.mount === info?.DockerRootDir)?.avail || 0 : 0;
 		if (isLocal && this.freespace !== 0)
-			this.freespace = '(' + '%1024.2m'.format(this.freespace) + ' ' + _('Available') + ')';
+			this.freespace = '(' + this.formatBytesSI(this.freespace) + ' ' + _('Available') + ')';
 
-		const mainContainer = E('div', { 'class': 'cbi-map' });
+		if (!document.getElementById('dockerman-overview-style')) {
+			const style = document.createElement('style');
+			style.id = 'dockerman-overview-style';
+			style.textContent = `
+.dockerman-overview .cbi-section-table table {
+	width: 100% !important;
+	table-layout: fixed;
+}
+.dockerman-overview .cbi-section-table td:first-child,
+.dockerman-overview .cbi-section-table th:first-child {
+	width: 32%;
+	max-width: 320px;
+}
+.dockerman-overview .cbi-section-table td:nth-child(2),
+.dockerman-overview .cbi-section-table th:nth-child(2) {
+	width: auto;
+	white-space: normal !important;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+`;
+			document.head.appendChild(style);
+		}
+
+		const mainContainer = E('div', { 'class': 'cbi-map dockerman-overview' });
 
 		// Add heading and description first
 		mainContainer.appendChild(E('h2', { 'class': 'section-title' }, [_('Docker - Overview')]));
@@ -167,7 +191,7 @@ return dm2.dv.extend({
 			[ _('Docker Version'), version_response.body.Version ],
 			[ _('Api Version'), version_response.body.ApiVersion ],
 			[ _('CPUs'), info_response.body.NCPU ],
-			[ _('Total Memory'), '%1024.2m'.format(info_response.body.MemTotal) ],
+			[ _('Total Memory'), this.formatBytesSI(info_response.body.MemTotal) ],
 			[ _('Docker Root Dir'), `${info_response.body.DockerRootDir} ${ (isLocal && this.freespace) ? this.freespace : '' }` ],
 			[ _('Index Server Address'), info_response.body.IndexServerAddress ],
 			[ _('Registry Mirrors'), info_response.body.RegistryConfig?.Mirrors || '-' ],

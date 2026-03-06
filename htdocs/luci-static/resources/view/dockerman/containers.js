@@ -75,22 +75,6 @@ return dm2.dv.extend({
 				container_list = containers2.body;
 				network_list = networks2.body;
 				m.data = new m.data.constructor({ container: view.getContainersTable(container_list, image_list, network_list), prune: {} });
-
-				const totals = calculateTotals();
-				if (conSec) {
-					conSec.footer = [
-						`${_('Total')} ${container_list.length}`,
-						[
-							`${_('Running')} ${totals.running_total}`,
-							E('br'),
-							`${_('Paused')} ${totals.paused_total}`,
-							E('br'),
-							`${_('Stopped')} ${totals.stopped_total}`,
-						],
-						'',
-						'',
-					];
-				}
 				
 				return m.render();
 			}).catch((err) => { console.warn(err) }).finally(() => { pollPending = null });
@@ -106,6 +90,11 @@ return dm2.dv.extend({
 		prune.inputtitle = `${dm2.ActionTypes['prune'].i18n} ${dm2.ActionTypes['prune'].e}`;
 		prune.inputstyle = 'negative';
 		prune.onclick = L.bind(function(section_id, ev) {
+			if (!confirm(_('Clean up unused/stopped containers?')))
+				return false;
+			if (!confirm(_('Please confirm again: this action cannot be undone. Continue?')))
+				return false;
+
 			return this.super('handleXHRTransfer', [{
 				q_params: {  },
 				commandCPath: '/containers/prune',
@@ -134,10 +123,20 @@ return dm2.dv.extend({
 			}]);
 		}, this);
 
-		const totals = calculateTotals();
-		let running_total = totals.running_total;
-		let paused_total = totals.paused_total;
-		let stopped_total = totals.stopped_total;
+		const overviewStats = s.option(form.DummyValue, '_totals', null);
+		overviewStats.rawhtml = true;
+		overviewStats.cfgvalue = function(section_id) {
+			const totals = calculateTotals();
+			const chipStyle = 'display:inline-block;padding:2px 8px;margin:2px 6px 2px 0;border-radius:999px;background:#f1f3f5;white-space:nowrap;';
+			return [
+				'<div style="white-space:normal;line-height:1.6;">',
+				`<span style="${chipStyle}">${_('Total')} ${container_list.length}</span>`,
+				`<span style="${chipStyle}">${_('Running')} ${totals.running_total}</span>`,
+				`<span style="${chipStyle}">${_('Paused')} ${totals.paused_total}</span>`,
+				`<span style="${chipStyle}">${_('Stopped')} ${totals.stopped_total}</span>`,
+				'</div>',
+			].join('');
+		};
 
 		conSec = m.section(form.TableSection, 'container');
 		conSec.anonymous = true;
@@ -146,18 +145,6 @@ return dm2.dv.extend({
 		conSec.sortable = true;
 		conSec.filterrow = true;
 		conSec.addbtntitle = `${dm2.ActionTypes['create'].i18n} ${dm2.ActionTypes['create'].e}`;
-		conSec.footer = [
-			`${_('Total')} ${container_list.length}`,
-			[
-				`${_('Running')} ${running_total}`,
-				E('br'),
-				`${_('Paused')} ${paused_total}`,
-				E('br'),
-				`${_('Stopped')} ${stopped_total}`,
-			],
-			'',
-			'',
-		];
 
 		conSec.handleAdd = function(section_id, ev) {
 			window.location.href = `${view.dockerman_url}/container_new`;
@@ -407,6 +394,79 @@ return dm2.dv.extend({
 	handleSaveApply: null,
 	handleReset: null,
 
+	formatContainerNetworksWithIp(networks, containerNetworks) {
+		const networkList = Array.isArray(networks) ? networks : [];
+		const rows = [];
+
+		if (Array.isArray(containerNetworks)) {
+			for (const cNet of containerNetworks) {
+				rows.push({
+					name: cNet?.Name || '',
+					data: cNet || {},
+				});
+			}
+		}
+		else if (containerNetworks && typeof containerNetworks === 'object') {
+			for (const name of Object.keys(containerNetworks)) {
+				rows.push({
+					name: name,
+					data: containerNetworks[name] || {},
+				});
+			}
+		}
+
+		if (!rows.length)
+			return '-';
+
+		const wrapLine = (label, value) => {
+			return E('div', { style: 'font-size:0.85em; opacity:.9; margin-top:1px;' }, [
+				`${label}: ${value}`
+			]);
+		};
+
+		const blocks = [];
+		for (let i = 0; i < rows.length; i++) {
+			const row = rows[i];
+			const cNet = row.data || {};
+			const network = networkList.find(n =>
+				n?.Name === row.name ||
+				n?.Name === cNet?.Name ||
+				n?.Id === cNet?.NetworkID ||
+				n?.Id === row.name
+			);
+
+			const displayName = row.name || cNet?.Name || network?.Name || cNet?.NetworkID || '-';
+			const titleId = network?.Id || cNet?.NetworkID || displayName;
+			const ipv4 = cNet?.IPAMConfig?.IPv4Address || cNet?.IPAddress || cNet?.IPv4Address || '';
+			const ipv6 = cNet?.IPAMConfig?.IPv6Address || cNet?.GlobalIPv6Address || cNet?.IPv6Address || '';
+			const isHostNetwork = (String(displayName).toLowerCase() === 'host') ||
+				(String(network?.Driver || '').toLowerCase() === 'host');
+
+			const nameNode = network ? E('a', {
+				href: `${this.dockerman_url}/network/${network.Id}`,
+				title: titleId,
+				style: 'white-space: nowrap;'
+			}, [displayName]) : E('span', { style: 'white-space: nowrap;' }, [displayName]);
+			const ipLines = [];
+			if (!isHostNetwork) {
+				if (ipv4)
+					ipLines.push(wrapLine('IPv4', ipv4));
+				if (ipv6)
+					ipLines.push(wrapLine('IPv6', ipv6));
+			}
+
+			blocks.push(E('div', { style: 'line-height:1.25; margin-bottom:4px;' }, [
+				nameNode,
+				...ipLines,
+			]));
+
+			if (i < rows.length - 1)
+				blocks.push(E('div', { style: 'height:2px;' }, []));
+		}
+
+		return E('div', {}, blocks);
+	},
+
 	getContainersTable(containers, image_list, network_list) {
 		const data = [];
 
@@ -435,7 +495,7 @@ return dm2.dv.extend({
 				...cont,
 				cid: cid,
 				_shortId: (cont?.Id || '').substring(0, 12),
-				Networks: this.parseNetworkLinksForContainer(network_list, cont?.NetworkSettings?.Networks || {}, true),
+				Networks: this.formatContainerNetworksWithIp(network_list, cont?.NetworkSettings?.Networks || {}),
 				Created: this.buildTimeString(cont?.Created) || '',
 				Ports: (Array.isArray(cont.Ports) && cont.Ports.length > 0)
 						? cont.Ports.map(p => {

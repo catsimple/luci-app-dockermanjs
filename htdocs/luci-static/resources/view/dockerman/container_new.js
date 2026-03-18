@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 'require form';
 'require fs';
 'require ui';
@@ -64,21 +64,64 @@ return dm2.dv.extend({
 
 		if (this.isDuplicate && this.duplicateContainer) {
 			pageTitle = _('Duplicate/Edit Container: %s').format(this.duplicateContainer.Name?.substring(1) || '');
-			const resolvePullableImageRef = (imageRef) => {
+			const resolvePullableImageRef = (imageRef, imageId) => {
 				if (!imageRef)
 					return '';
 				const ref = String(imageRef).trim();
+				const hasTag = (r) => {
+					const lastSlash = r.lastIndexOf('/');
+					const lastColon = r.lastIndexOf(':');
+					return lastColon > lastSlash && !r.includes('@sha256:');
+				};
 				const match = (image_list || []).find((img) =>
-					img?.Id === ref || (Array.isArray(img?.RepoTags) && img.RepoTags.includes(ref))
+					img?.Id === ref ||
+					(Array.isArray(img?.RepoTags) && img.RepoTags.includes(ref)) ||
+					(Array.isArray(img?.RepoDigests) && img.RepoDigests.includes(ref))
 				);
-				const repoTag = Array.isArray(match?.RepoTags)
+				if (!match)
+					{
+						// If ref has no tag, try to find a matching repo tag
+						if (!hasTag(ref)) {
+							const byRepo = (image_list || []).filter(img =>
+								Array.isArray(img?.RepoTags) && img.RepoTags.some(t => t && t.startsWith(ref + ':'))
+							);
+							let preferred = null;
+							if (imageId)
+								preferred = byRepo.find(img => img?.Id === imageId) || null;
+							const candidate = preferred || byRepo[0] || null;
+							const repoTag = candidate?.RepoTags?.find(t => t && t.startsWith(ref + ':'));
+							if (repoTag) return repoTag;
+						}
+						return ref;
+					}
+
+				// Keep exact tag if it exists
+				if (Array.isArray(match.RepoTags) && match.RepoTags.includes(ref))
+					return ref;
+
+				// If ref is an ID/digest, keep ID to avoid switching tags
+				if (ref.startsWith('sha256:') || ref.includes('@sha256:'))
+					return match.Id || imageId || ref;
+
+				// If ref has no tag, prefer tag that matches this repo on the same image id
+				if (!hasTag(ref)) {
+					const sameImage = imageId ? (image_list || []).find(img => img?.Id === imageId) : null;
+					const tag = sameImage?.RepoTags?.find(t => t && t.startsWith(ref + ':'));
+					if (tag) return tag;
+					const anyTag = match?.RepoTags?.find(t => t && t.startsWith(ref + ':'));
+					if (anyTag) return anyTag;
+				}
+
+				const repoTag = Array.isArray(match.RepoTags)
 					? match.RepoTags.find((t) => t && t !== '<none>:<none>')
 					: null;
-				return repoTag || match?.Id || ref;
+				return repoTag || match.Id || imageId || ref;
 			};
 			const c = this.duplicateContainer;
 			const hostConfig = c.HostConfig || {};
-			const resolvedImage = resolvePullableImageRef(c.Config?.Image) || resolvePullableImageRef(c.Image) || '';
+			const resolvedImage = resolvePullableImageRef(c.Config?.Image, c.Image || c.ImageID) ||
+				resolvePullableImageRef(c.Image, c.Image || c.ImageID) ||
+				(c.Image || c.ImageID || '');
 			const builtInNetworks = new Set(['none', 'bridge', 'host']);
 			const [netnames, nets] = Object.entries(c.NetworkSettings?.Networks || {});
 
@@ -305,7 +348,8 @@ return dm2.dv.extend({
 			const c_volumes = view.map.data.get('json', 'container', 'volume') || [];
 
 			const showVolumeModal = (index, initialEntry) => {
-				let typeSelect, bindPicker, bindSourceField, volumeNameInput, volumeSourceField, pathInput, pathField, optionsDropdown, optionsField, subpathInput;
+				let typeSelect, bindSourceField, volumeNameInput, volumeSourceField, pathInput, pathField, optionsDropdown, optionsField, subpathInput;
+				let bindPathInput, bindDirBrowserWrap, bindFileBrowserWrap;
 				let tmpfsSizeInput, tmpfsModeInput, tmpfsOptsInput, tmpfsSizeField, tmpfsModeField, tmpfsOptsField;
 				const isEdit = index !== null;
 				const modalTitle = isEdit ? _('Edit Mount') : _('Add Mount');
@@ -358,9 +402,15 @@ return dm2.dv.extend({
 				});
 
 				const createField = (label, input) => {
-					return E('div', { 'class': 'cbi-value' }, [
-						E('label', { 'class': 'cbi-value-title' }, label),
-						E('div', { 'class': 'cbi-value-field' }, Array.isArray(input) ? input : [input])
+					return E('div', { 'class': 'cbi-value', 'style': 'display:block; text-align:left;' }, [
+						E('label', {
+							'class': 'cbi-value-title',
+							'style': 'float:none; display:block; width:100%; text-align:left; margin:0 0 4px 0;'
+						}, label),
+						E('div', {
+							'class': 'cbi-value-field',
+							'style': 'float:none; width:100%;'
+						}, Array.isArray(input) ? input : [input])
 					]);
 				};
 
@@ -373,18 +423,124 @@ return dm2.dv.extend({
 				];
 				typeSelect = E('select', { 'class': 'cbi-input-select' }, typeOptions);
 				typeSelect.value = initialType;
-
-				// Bind directory picker using ui.FileUpload
-				bindPicker = new ui.FileUpload(initialType === 'bind' ? initialSource : '', {
-					browser: false,
-					directory_select: true,
-					directory_create: false,
-					enable_upload: false,
-					enable_remove: false,
-					enable_download: false,
-					root_directory: '/',
-					show_hidden: true
+				// Bind path input + custom picker
+				bindPathInput = E('input', {
+					'type': 'text',
+					'class': 'cbi-input-text',
+					'placeholder': _('/mnt/path'),
+					'value': initialType === 'bind' ? initialSource : ''
 				});
+
+				const normalizePath = (p) => {
+					let out = (p || '').trim();
+					if (!out) return '/';
+					if (!out.startsWith('/')) out = '/' + out;
+					return out.replace(/\/+$/g, '/').replace(/\/+/g, '/');
+				};
+
+				const joinPath = (base, name) => {
+					const b = (base === '/' ? '' : base.replace(/\/+$/, ''));
+					return (b + '/' + name).replace(/\/+/g, '/');
+				};
+
+				const buildInlinePicker = () => {
+					let current = normalizePath(bindPathInput.value || '/');
+
+					const wrap = E('div', { 'style': 'display:none;margin-top:8px;padding:8px;border:1px solid #e5e5e5;border-radius:4px;max-height:280px;overflow:auto;background:#fff;' });
+					const listBox = E('div', { 'style': 'margin-top:6px;' });
+					const pathLabel = E('code', { 'style': 'font-size:12px;' }, [current]);
+
+					const renderList = () => {
+						listBox.innerHTML = '';
+						pathLabel.textContent = current;
+						return fs.list(current).then((entries) => {
+							const items = Array.isArray(entries) ? entries : [];
+							items.sort((a, b) => {
+								const ad = (a?.type === 'directory' || a?.type === 'dir') ? 0 : 1;
+								const bd = (b?.type === 'directory' || b?.type === 'dir') ? 0 : 1;
+								if (ad !== bd) return ad - bd;
+								return String(a?.name || '').localeCompare(String(b?.name || ''));
+							});
+
+							for (const ent of items) {
+								const name = ent?.name || '';
+								if (!name || name === '.' || name === '..') continue;
+								const isDir = (ent?.type === 'directory' || ent?.type === 'dir');
+								const row = E('div', { 'style': 'display:flex;gap:8px;align-items:center;padding:4px 2px;' }, [
+									E('span', {
+										'style': 'flex:1;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+									}, [name]),
+									E('button', {
+										'class': 'cbi-button',
+										'click': () => {
+											const chosen = joinPath(current, name);
+											bindPathInput.value = chosen;
+											wrap.style.display = 'none';
+										}
+									}, [_('Select')])
+								]);
+
+								row.firstChild.addEventListener('click', () => {
+									if (isDir) {
+										current = joinPath(current, name);
+										renderList();
+									} else {
+										bindPathInput.value = joinPath(current, name);
+										wrap.style.display = 'none';
+									}
+								});
+								listBox.appendChild(row);
+							}
+						}).catch(() => {
+							listBox.textContent = _('Failed to read directory');
+						});
+					};
+
+					const goUp = () => {
+						if (current === '/') return;
+						current = current.replace(/\/+$/, '').replace(/\/[^/]*$/, '') || '/';
+						renderList();
+					};
+
+					const header = E('div', { 'style': 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;' }, [
+						E('button', { 'class': 'cbi-button', 'click': goUp }, [_('Up')]),
+						E('span', { 'style': 'font-size:12px;color:#666;' }, [_('Current:')]),
+						pathLabel,
+						E('button', {
+							'class': 'cbi-button cbi-button-positive',
+							'click': () => { bindPathInput.value = current; wrap.style.display = 'none'; }
+						}, [_('Use Current')])
+					]);
+
+					const footer = E('div', { 'class': 'right', 'style': 'margin-top:8px;' }, [
+						E('button', { 'class': 'cbi-button', 'click': () => { wrap.style.display = 'none'; } }, [_('Close')])
+					]);
+
+					wrap.appendChild(header);
+					wrap.appendChild(listBox);
+					wrap.appendChild(footer);
+
+					const show = () => {
+						current = normalizePath(bindPathInput.value || '/');
+						wrap.style.display = '';
+						renderList();
+					};
+
+					const hide = () => { wrap.style.display = 'none'; };
+
+					return { wrap, show, hide };
+				};
+
+				const filePicker = buildInlinePicker();
+				bindFileBrowserWrap = filePicker.wrap;
+
+				bindSourceField = createField(_('Host Directory'), [
+					bindPathInput,
+					E('div', { 'style': 'display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;' }, [
+						E('button', { 'class': 'cbi-button', 'style': 'min-width:96px;height:32px;line-height:28px;', 'click': () => { filePicker.show(); } }, [_('Choose File')])
+					]),
+					bindFileBrowserWrap
+				]);
 
 				// Volume name input with datalist
 				volumeNameInput = E('input', {
@@ -439,11 +595,7 @@ return dm2.dv.extend({
 					})
 				);
 
-				// Render bindPicker and show modal
-				Promise.resolve(bindPicker.render()).then(bindPickerNode => {
-					bindSourceField = createField(_('Host Directory'), bindPickerNode);
-
-					const updateOptions = (selectedType) => {
+				const updateOptions = (selectedType) => {
 						optionsField.querySelector('.cbi-value-field').innerHTML = '';
 						if (selectedType === 'image') {
 							// For image mounts, show a Subpath text input (only option)
@@ -517,7 +669,9 @@ return dm2.dv.extend({
 								'click': ui.createHandlerFn(view, () => {
 									const selectedType = typeSelect.value;
 									const sourcePath = selectedType === 'bind'
-										? (bindPicker.getValue() || '').trim()
+										? ((bindPathInput?.value || '').trim()
+											|| (bindPickerDir.getValue() || '').trim()
+											|| (bindPickerFile.getValue() || '').trim())
 										: (selectedType === 'volume'
 											? (volumeNameInput.value || '').trim()
 											: (selectedType === 'tmpfs' ? '@tmpfs' : '@image'));
@@ -581,23 +735,58 @@ return dm2.dv.extend({
 
 					toggleSources();
 					typeSelect.addEventListener('change', toggleSources);
-				});
 			};
 
 
+			const manualInput = E('input', {
+				'type': 'text',
+				'class': 'cbi-input-text',
+				'placeholder': _('/host/path:/container/path[:options]'),
+			});
+
+			const addManual = ui.createHandlerFn(view, () => {
+				const val = (manualInput.value || '').trim();
+				if (!val) return;
+				const currentVolumes = view.map.data.get('json', 'container', 'volume') || [];
+				const updatedVolumes = Array.isArray(currentVolumes) ? [...currentVolumes, val] : [val];
+				view.map.data.set('json', 'container', 'volume', updatedVolumes);
+				manualInput.value = '';
+				return view.map.render();
+			});
+
+			manualInput.addEventListener('keydown', (ev) => {
+				if (ev.key === 'Enter') {
+					ev.preventDefault();
+					addManual();
+				}
+			});
+
 			return E('div', { 'class': 'cbi-dynlist' }, [
+				E('div', { 'class': 'cbi-dynlist-input', 'style': 'display:flex; gap:6px; align-items:center; margin:4px 0 10px 0;' }, [
+					manualInput,
+					E('button', {
+						'class': 'cbi-button cbi-button-add',
+						'style': 'min-width:32px;height:32px;line-height:28px;',
+						'title': _('Add'),
+						'click': addManual
+					}, ['+'])
+				]),
 				...(c_volumes.length > 0 ? c_volumes.map((v, idx) => E('div', {
 					'class': 'cbi-dynlist-item',
-					'style': 'display: flex; justify-content: space-between; align-items: center; padding: 8px 5px; margin-bottom: 8px; gap: 10px;'
+					'style': 'display: flex; justify-content: space-between; align-items: center; padding: 6px 0; gap: 10px;'
 				}, [
-					E('span', {
-						'style': 'cursor: pointer; flex: 1;',
+					E('input', {
+						'type': 'text',
+						'class': 'cbi-input-text',
+						'readonly': true,
+						'value': v,
+						'style': 'flex: 1; cursor: pointer;',
 						'click': ui.createHandlerFn(view, () => {
 							showVolumeModal(idx, v);
 						})
-					}, v),
+					}),
 					E('button', {
-						'style': 'padding: 5px; color: #c44;',
+						'style': 'min-width:32px;height:32px;line-height:28px;padding:0 6px;color:#c44;',
 						'class': 'cbi-button-negative remove',
 						'title': _('Delete this volume mount'),
 						'click': ui.createHandlerFn(view, () => {
@@ -610,6 +799,7 @@ return dm2.dv.extend({
 				])) : [E('div', { 'style': 'padding: 5px; color: #999;' }, _('No volumes available'))]),
 				E('button', {
 					'class': 'cbi-button',
+					'style': 'min-width:96px;height:32px;line-height:28px;',
 					'click': ui.createHandlerFn(view, () => {
 						showVolumeModal(null, null);
 					})
@@ -963,3 +1153,5 @@ return dm2.dv.extend({
 	handleReset: null,
 
 });
+
+
